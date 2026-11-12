@@ -2,7 +2,8 @@ import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import St from 'gi://St';
 
-import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as AltTab from 'resource:///org/gnome/shell/ui/altTab.js';
+import {Extension, InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const BORDER = 3; // keep in sync with stylesheet.css
 
@@ -16,6 +17,7 @@ export default class ActiveWindowBorder extends Extension {
     enable() {
         this._window = null;
         this._laterId = 0;
+        this._previewing = false;
 
         this._border = new St.Widget({
             style_class: 'active-window-border',
@@ -25,17 +27,30 @@ export default class ActiveWindowBorder extends Extension {
         global.window_group.add_child(this._border);
 
         global.display.connectObject(
-            'notify::focus-window', () => this._track(),
+            'notify::focus-window', () => this._onFocusChanged(),
             'restacked', () => this._queueUpdate(),
             this);
         global.workspace_manager.connectObject(
-            'active-workspace-changed', () => this._track(),
+            'active-workspace-changed', () => this._onFocusChanged(),
             this);
 
-        this._track();
+        // Follow the selection in the Alt+Tab / Super+Tab switchers.
+        const ext = this;
+        this._injections = new InjectionManager();
+        for (const klass of [AltTab.WindowSwitcherPopup, AltTab.AppSwitcherPopup]) {
+            this._injections.overrideMethod(klass.prototype, '_select',
+                original => function (...args) {
+                    original.apply(this, args);
+                    ext._onSwitcherSelect(this);
+                });
+        }
+
+        this._track(global.display.focus_window);
     }
 
     disable() {
+        this._injections.clear();
+        this._injections = null;
         global.display.disconnectObject(this);
         global.workspace_manager.disconnectObject(this);
         this._untrack();
@@ -47,15 +62,49 @@ export default class ActiveWindowBorder extends Extension {
         this._border = null;
     }
 
+    _onFocusChanged() {
+        // While the switcher is open the outline follows its selection.
+        if (!this._previewing)
+            this._track(global.display.focus_window);
+    }
+
+    _onSwitcherSelect(popup) {
+        if (!this._border)
+            return;
+
+        let win = null;
+        try {
+            const item = popup._items[popup._selectedIndex];
+            if (popup instanceof AltTab.WindowSwitcherPopup)
+                win = item?.window ?? null;
+            else
+                win = item?.cachedWindows[Math.max(popup._currentWindow, 0)] ?? null;
+        } catch (e) {
+            console.warn(`active-window-border: ${e}`);
+        }
+
+        if (!popup._activeWindowBorderHooked) {
+            popup._activeWindowBorderHooked = true;
+            popup.connect('destroy', () => {
+                if (!this._border)
+                    return;
+                this._previewing = false;
+                this._track(global.display.focus_window);
+            });
+        }
+
+        this._previewing = true;
+        this._track(win);
+    }
+
     _untrack() {
         this._window?.disconnectObject(this);
         this._window = null;
     }
 
-    _track() {
+    _track(win) {
         this._untrack();
 
-        const win = global.display.focus_window;
         if (win && ALLOWED_TYPES.includes(win.get_window_type())) {
             this._window = win;
             win.connectObject(
@@ -115,14 +164,23 @@ export default class ActiveWindowBorder extends Extension {
         this._border.remove_style_class_name('inset-square');
         this._border.remove_style_class_name('inset-round');
 
-        if (square || nearEdge) {
+        const inset = square || nearEdge;
+        if (inset) {
             this._border.add_style_class_name(square ? 'inset-square' : 'inset-round');
             this._border.set_position(rect.x, rect.y);
             this._border.set_size(rect.width, rect.height);
-            global.window_group.set_child_above_sibling(this._border, actor);
         } else {
             this._border.set_position(rect.x - BORDER, rect.y - BORDER);
             this._border.set_size(rect.width + 2 * BORDER, rect.height + 2 * BORDER);
+        }
+
+        if (this._previewing) {
+            // Switcher open: show the outline above every window, so the
+            // selected window can be found even when it's covered.
+            global.window_group.set_child_above_sibling(this._border, null);
+        } else if (inset) {
+            global.window_group.set_child_above_sibling(this._border, actor);
+        } else {
             global.window_group.set_child_below_sibling(this._border, actor);
         }
         this._border.show();
