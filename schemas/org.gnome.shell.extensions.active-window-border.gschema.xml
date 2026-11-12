@@ -15,5 +15,9 @@
         'follow': move and resize the outline along with the animation.
       </description>
     </key>
+    <key name="debug" type="b">
+      <default>false</default>
+      <summary>Log debug information to the journal</summary>
+    </key>
   </schema>
 </schemalist>

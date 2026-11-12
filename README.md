@@ -48,6 +48,14 @@ Open with `gnome-extensions prefs active-window-border@temponi8.github.io` (or f
 
 - **During window animations:** *Follow the animation* (default) or *Wait until it finishes*.
 
+For troubleshooting, turn on debug logging and watch the journal:
+
+```bash
+gsettings --schemadir ~/.local/share/gnome-shell/extensions/active-window-border@temponi8.github.io/schemas \
+  set org.gnome.shell.extensions.active-window-border debug true
+journalctl --user -f -g active-window-border
+```
+
 ## Customize
 
 - **Thickness:** change `BORDER` in `extension.js` *and* the `3px` in `stylesheet.css`.

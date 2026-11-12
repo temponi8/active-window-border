@@ -1,5 +1,4 @@
 import GLib from 'gi://GLib';
-import Graphene from 'gi://Graphene';
 import Meta from 'gi://Meta';
 import St from 'gi://St';
 
@@ -12,6 +11,8 @@ const BORDER = 3; // keep in sync with stylesheet.css
 // Poll interval while a window animation runs, and the longest we'll wait.
 const ANIMATION_POLL_MS = 30;
 const ANIMATION_MAX_WAIT_US = 1000 * 1000;
+// Longest a size change may stay 'pending' (frozen) before we ignore it.
+const PENDING_MAX_US = 400 * 1000;
 
 const ALLOWED_TYPES = [
     Meta.WindowType.NORMAL,
@@ -26,13 +27,17 @@ export default class ActiveWindowBorder extends Extension {
         this._previewing = false;
         this._animPollId = 0;
         this._animWaitStart = 0;
+        this._pendingSince = 0;
         this._actor = null;
 
         this._settings = this.getSettings();
         this._animationMode = this._settings.get_string('animation-mode');
+        this._debug = this._settings.get_boolean('debug');
         this._settings.connectObject('changed::animation-mode', () => {
             this._animationMode = this._settings.get_string('animation-mode');
             this._queueUpdate();
+        }, 'changed::debug', () => {
+            this._debug = this._settings.get_boolean('debug');
         }, this);
 
         this._border = new St.Widget({
@@ -93,7 +98,20 @@ export default class ActiveWindowBorder extends Extension {
         this._border = null;
     }
 
+    _log(msg) {
+        if (this._debug)
+            console.log(`[active-window-border] ${msg}`);
+    }
+
+    _describe(win) {
+        if (!win)
+            return 'null';
+        return `"${win.get_title()}" (${win.get_wm_class()}, mon ${win.get_monitor()})`;
+    }
+
     _onFocusChanged() {
+        this._log(`focus -> ${this._describe(global.display.focus_window)}` +
+            `${this._previewing ? ' [ignored: switcher open]' : ''}`);
         // While the switcher is open the outline follows its selection.
         if (!this._previewing)
             this._track(global.display.focus_window);
@@ -136,8 +154,10 @@ export default class ActiveWindowBorder extends Extension {
     }
 
     _track(win) {
+        this._log(`track ${this._describe(win)}`);
         this._untrack();
         this._animWaitStart = 0;
+        this._pendingSince = 0;
 
         if (win && ALLOWED_TYPES.includes(win.get_window_type())) {
             this._window = win;
@@ -197,28 +217,47 @@ export default class ActiveWindowBorder extends Extension {
             !!wm._resizePending?.has(actor);
     }
 
-    _animatedFrame(actor, frame) {
+    _animatedFrame(win, actor, frame) {
         // Before a size change starts, the actor is frozen showing its old
-        // size: draw around the old frame.
+        // size: draw around the old frame. Tiling Assistant sometimes starts
+        // a size change that never completes ("Error in size change
+        // accounting"); don't stay on the old frame for longer than a
+        // normal animation would take.
         const info = actor.__animationInfo;
         if (info && Main.wm._resizePending?.has(actor)) {
-            const r = info.oldRect;
-            return {x: r.x, y: r.y, width: r.width, height: r.height};
+            const now = GLib.get_monotonic_time();
+            if (!this._pendingSince)
+                this._pendingSince = now;
+            if (now - this._pendingSince < PENDING_MAX_US) {
+                const r = info.oldRect;
+                return {x: r.x, y: r.y, width: r.width, height: r.height};
+            }
+            return {x: frame.x, y: frame.y, width: frame.width, height: frame.height};
         }
+        this._pendingSince = 0;
 
-        // Map the frame's corners (in the actor's own coordinates) through
-        // the actor's current scale/translation into window_group space.
-        const map = (x, y) => actor.apply_relative_transform_to_point(
-            global.window_group,
-            new Graphene.Point3D({x: x - actor.x, y: y - actor.y, z: 0}));
-        const a = map(frame.x, frame.y);
-        const b = map(frame.x + frame.width, frame.y + frame.height);
+        // The actor sits at the window's buffer rect and is drawn with
+        //   origin + translation + pivot + (point - pivot) * scale.
+        // Use Mutter's buffer rect (always consistent with the frame rect)
+        // rather than the actor's own position, which can lag a frame
+        // behind when a size-change animation starts.
+        const buf = win.get_buffer_rect();
+        const pivot = actor.pivot_point;
+        const pivotX = pivot.x * buf.width;
+        const pivotY = pivot.y * buf.height;
+        const mapX = x => buf.x + actor.translation_x + pivotX +
+            (x - buf.x - pivotX) * actor.scale_x;
+        const mapY = y => buf.y + actor.translation_y + pivotY +
+            (y - buf.y - pivotY) * actor.scale_y;
+
+        const x1 = mapX(frame.x), x2 = mapX(frame.x + frame.width);
+        const y1 = mapY(frame.y), y2 = mapY(frame.y + frame.height);
 
         return {
-            x: Math.round(Math.min(a.x, b.x)),
-            y: Math.round(Math.min(a.y, b.y)),
-            width: Math.round(Math.abs(b.x - a.x)),
-            height: Math.round(Math.abs(b.y - a.y)),
+            x: Math.round(Math.min(x1, x2)),
+            y: Math.round(Math.min(y1, y2)),
+            width: Math.round(Math.abs(x2 - x1)),
+            height: Math.round(Math.abs(y2 - y1)),
         };
     }
 
@@ -246,6 +285,9 @@ export default class ActiveWindowBorder extends Extension {
 
         if (!win || !actor || win.minimized || !actor.visible ||
             actor.get_parent() !== global.window_group) {
+            this._log(`hide ${this._describe(win)}: actor=${!!actor} ` +
+                `minimized=${win?.minimized} visible=${actor?.visible} ` +
+                `parentIsWindowGroup=${actor?.get_parent() === global.window_group}`);
             this._border.hide();
             return;
         }
@@ -254,22 +296,27 @@ export default class ActiveWindowBorder extends Extension {
         const follow = animating && this._animationMode === 'follow';
 
         if (animating && !follow && !this._animationWaitExpired()) {
+            this._log(`hide ${this._describe(win)}: waiting for animation`);
             this._border.hide();
             this._pollAnimation();
             return;
         }
-        this._animWaitStart = 0;
+        // Only restart the wait timer once the window really stops animating,
+        // so an animation that never completes can't keep hiding the outline
+        // (or keep us polling forever).
+        if (!animating)
+            this._animWaitStart = 0;
 
         // Keep re-checking while following, so the outline settles on the
         // final frame even if the last animation step sends no notification.
-        if (follow)
+        if (follow && !this._animationWaitExpired())
             this._pollAnimation();
 
         const frame = win.get_frame_rect();
         // Where the window is drawn right now: its final frame, or (while
         // following an animation) that frame mapped through the animation.
         const rect = follow
-            ? this._animatedFrame(actor, frame)
+            ? this._animatedFrame(win, actor, frame)
             : {x: frame.x, y: frame.y, width: frame.width, height: frame.height};
         this._border.opacity = follow ? actor.opacity : 255;
 
@@ -311,5 +358,15 @@ export default class ActiveWindowBorder extends Extension {
             global.window_group.set_child_below_sibling(this._border, actor);
         }
         this._border.show();
+
+        if (this._debug) {
+            const kids = global.window_group.get_children();
+            this._log(`show ${this._describe(win)}: ` +
+                `${inset ? (square ? 'inset-square' : 'inset-round') : 'outside'} ` +
+                `rect=${rect.x},${rect.y} ${rect.width}x${rect.height} ` +
+                `animating=${animating} follow=${follow} opacity=${this._border.opacity} ` +
+                `preview=${this._previewing} borderIdx=${kids.indexOf(this._border)} ` +
+                `actorIdx=${kids.indexOf(actor)}/${kids.length}`);
+        }
     }
 }
