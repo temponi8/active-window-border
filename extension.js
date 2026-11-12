@@ -1,3 +1,4 @@
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import St from 'gi://St';
@@ -13,6 +14,10 @@ const ANIMATION_POLL_MS = 30;
 const ANIMATION_MAX_WAIT_US = 1000 * 1000;
 // Longest a size change may stay 'pending' (frozen) before we ignore it.
 const PENDING_MAX_US = 400 * 1000;
+
+// Wait this long after the last accent colour change before notifying, so
+// clicking through several colours gives a single notification.
+const ACCENT_NOTIFY_DELAY_MS = 1500;
 
 const ALLOWED_TYPES = [
     Meta.WindowType.NORMAL,
@@ -39,6 +44,13 @@ export default class ActiveWindowBorder extends Extension {
         }, 'changed::debug', () => {
             this._debug = this._settings.get_boolean('debug');
         }, this);
+
+        // After the accent colour changes, the outline can stop showing
+        // until the next login, so tell the user.
+        this._accentNotifyId = 0;
+        this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        this._interfaceSettings.connectObject('changed::accent-color',
+            () => this._onAccentChanged(), this);
 
         this._border = new St.Widget({
             style_class: 'active-window-border',
@@ -82,6 +94,12 @@ export default class ActiveWindowBorder extends Extension {
         this._injections = null;
         this._settings.disconnectObject(this);
         this._settings = null;
+        this._interfaceSettings.disconnectObject(this);
+        this._interfaceSettings = null;
+        if (this._accentNotifyId) {
+            GLib.source_remove(this._accentNotifyId);
+            this._accentNotifyId = 0;
+        }
         global.display.disconnectObject(this);
         global.workspace_manager.disconnectObject(this);
         global.window_manager.disconnectObject(this);
@@ -107,6 +125,20 @@ export default class ActiveWindowBorder extends Extension {
         if (!win)
             return 'null';
         return `"${win.get_title()}" (${win.get_wm_class()}, mon ${win.get_monitor()})`;
+    }
+
+    _onAccentChanged() {
+        this._log('accent colour changed');
+        if (this._accentNotifyId)
+            GLib.source_remove(this._accentNotifyId);
+        this._accentNotifyId = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
+            ACCENT_NOTIFY_DELAY_MS, () => {
+                this._accentNotifyId = 0;
+                Main.notify('Active Window Border',
+                    'Accent colour changed. Log out and back in so the ' +
+                    'window outline keeps showing correctly.');
+                return GLib.SOURCE_REMOVE;
+            });
     }
 
     _onFocusChanged() {
