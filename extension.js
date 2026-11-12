@@ -3,9 +3,14 @@ import Meta from 'gi://Meta';
 import St from 'gi://St';
 
 import * as AltTab from 'resource:///org/gnome/shell/ui/altTab.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Extension, InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const BORDER = 3; // keep in sync with stylesheet.css
+
+// Poll interval while a window animation runs, and the longest we'll wait.
+const ANIMATION_POLL_MS = 30;
+const ANIMATION_MAX_WAIT_US = 1000 * 1000;
 
 const ALLOWED_TYPES = [
     Meta.WindowType.NORMAL,
@@ -18,6 +23,8 @@ export default class ActiveWindowBorder extends Extension {
         this._window = null;
         this._laterId = 0;
         this._previewing = false;
+        this._animPollId = 0;
+        this._animWaitStart = 0;
 
         this._border = new St.Widget({
             style_class: 'active-window-border',
@@ -32,6 +39,14 @@ export default class ActiveWindowBorder extends Extension {
             this);
         global.workspace_manager.connectObject(
             'active-workspace-changed', () => this._onFocusChanged(),
+            this);
+        // Window animations (open, unminimize, maximize/tile): re-check so the
+        // outline waits for them to finish.
+        global.window_manager.connectObject(
+            'map', () => this._queueUpdate(),
+            'unminimize', () => this._queueUpdate(),
+            'size-change', () => this._queueUpdate(),
+            'size-changed', () => this._queueUpdate(),
             this);
 
         // Follow the selection in the Alt+Tab / Super+Tab switchers.
@@ -53,6 +68,11 @@ export default class ActiveWindowBorder extends Extension {
         this._injections = null;
         global.display.disconnectObject(this);
         global.workspace_manager.disconnectObject(this);
+        global.window_manager.disconnectObject(this);
+        if (this._animPollId) {
+            GLib.source_remove(this._animPollId);
+            this._animPollId = 0;
+        }
         this._untrack();
         if (this._laterId) {
             global.compositor.get_laters().remove(this._laterId);
@@ -104,6 +124,7 @@ export default class ActiveWindowBorder extends Extension {
 
     _track(win) {
         this._untrack();
+        this._animWaitStart = 0;
 
         if (win && ALLOWED_TYPES.includes(win.get_window_type())) {
             this._window = win;
@@ -134,6 +155,35 @@ export default class ActiveWindowBorder extends Extension {
             });
     }
 
+    _isAnimating(actor) {
+        // GNOME Shell's window animations (Tiling Assistant reuses the
+        // size-change one for Super+arrow tiling).
+        const wm = Main.wm;
+        return !!actor.__animationInfo ||
+            !!wm._mapping?.has(actor) ||
+            !!wm._unminimizing?.has(actor) ||
+            !!wm._resizing?.has(actor) ||
+            !!wm._resizePending?.has(actor);
+    }
+
+    _animationWaitExpired() {
+        const now = GLib.get_monotonic_time();
+        if (!this._animWaitStart)
+            this._animWaitStart = now;
+        return now - this._animWaitStart > ANIMATION_MAX_WAIT_US;
+    }
+
+    _pollAnimation() {
+        if (this._animPollId)
+            return;
+        this._animPollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
+            ANIMATION_POLL_MS, () => {
+                this._animPollId = 0;
+                this._queueUpdate();
+                return GLib.SOURCE_REMOVE;
+            });
+    }
+
     _update() {
         const win = this._window;
         const actor = win?.get_compositor_private();
@@ -143,6 +193,13 @@ export default class ActiveWindowBorder extends Extension {
             this._border.hide();
             return;
         }
+
+        if (this._isAnimating(actor) && !this._animationWaitExpired()) {
+            this._border.hide();
+            this._pollAnimation();
+            return;
+        }
+        this._animWaitStart = 0;
 
         const rect = win.get_frame_rect();
 
