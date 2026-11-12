@@ -34,6 +34,7 @@ export default class ActiveWindowBorder extends Extension {
         this._animWaitStart = 0;
         this._pendingSince = 0;
         this._actor = null;
+        this._unredirectDisabled = false;
 
         this._settings = this.getSettings();
         this._animationMode = this._settings.get_string('animation-mode');
@@ -112,8 +113,26 @@ export default class ActiveWindowBorder extends Extension {
             global.compositor.get_laters().remove(this._laterId);
             this._laterId = 0;
         }
+        this._setUnredirect(true);
         this._border.destroy();
         this._border = null;
+    }
+
+    _setUnredirect(allowed) {
+        // While a fullscreen window is open on any monitor, Mutter may send
+        // it straight to the screen (unredirect / direct scanout), and while
+        // it does, the outline can stop being drawn, even on another monitor.
+        // GNOME Shell turns this off the same way for its OSDs and the
+        // magnifier, so do that while the outline is visible.
+        if (allowed && this._unredirectDisabled) {
+            global.compositor.enable_unredirect();
+            this._unredirectDisabled = false;
+            this._log('fullscreen unredirect allowed again');
+        } else if (!allowed && !this._unredirectDisabled) {
+            global.compositor.disable_unredirect();
+            this._unredirectDisabled = true;
+            this._log('fullscreen unredirect disabled');
+        }
     }
 
     _log(msg) {
@@ -321,6 +340,7 @@ export default class ActiveWindowBorder extends Extension {
                 `minimized=${win?.minimized} visible=${actor?.visible} ` +
                 `parentIsWindowGroup=${actor?.get_parent() === global.window_group}`);
             this._border.hide();
+            this._setUnredirect(true);
             return;
         }
 
@@ -330,6 +350,7 @@ export default class ActiveWindowBorder extends Extension {
         if (animating && !follow && !this._animationWaitExpired()) {
             this._log(`hide ${this._describe(win)}: waiting for animation`);
             this._border.hide();
+            this._setUnredirect(true);
             this._pollAnimation();
             return;
         }
@@ -390,6 +411,7 @@ export default class ActiveWindowBorder extends Extension {
             global.window_group.set_child_below_sibling(this._border, actor);
         }
         this._border.show();
+        this._setUnredirect(false);
 
         if (this._debug) {
             const kids = global.window_group.get_children();

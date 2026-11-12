@@ -9,6 +9,7 @@ Unlike the focus hints in Tiling Assistant or Tiling Shell, it also works on **t
 - **Free-floating windows:** a 3px outline just outside the window, with rounded corners that match libadwaita windows (15px radius).
 - **Tiled (half/quarter screen), maximized or fullscreen windows:** these have square corners, so the outline is a square box drawn just inside the window's edges. It never leaves the window's own area, so it won't show up on a neighbouring monitor.
 - **Free windows touching a monitor edge:** drawn just inside the window with rounded corners, so the outline doesn't spill onto the next monitor.
+- **Fullscreen windows:** while a fullscreen window is open, GNOME normally sends it straight to the screen (direct scanout), and while it does, the outline can stop being drawn, even on another monitor. While the outline is visible, the extension turns that off, the same way GNOME does for its own popups. This can cost a little performance in fullscreen games and videos.
 - **Alt+Tab / Super+Tab:** while the switcher is open, the outline moves to the selected window and is drawn above all other windows, so you can see where it is even if it's covered.
 - **Animations:** when a window opens, is unminimized, or is maximized/tiled (e.g. Super+arrows), the outline follows the animation (default), or optionally waits for it to finish before appearing. Choose in the extension's preferences.
 - **Colour:** follows the accent colour in *Settings → Appearance* automatically (via `-st-accent-color`).
