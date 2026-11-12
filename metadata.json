@@ -1,0 +1,7 @@
+{
+  "uuid": "active-window-border@local",
+  "name": "Active Window Border",
+  "description": "Outlines the focused window in the system accent colour, including maximized and fullscreen windows.",
+  "shell-version": ["50"],
+  "version": 1
+}

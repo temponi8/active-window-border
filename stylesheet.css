@@ -1,0 +1,10 @@
+/* Normal windows: outline drawn just outside the window, behind it. */
+.active-window-border {
+    border: 3px solid -st-accent-color;
+    border-radius: 18px; /* window radius (15px) + border width (3px) */
+}
+
+/* Maximized / fullscreen: edges touch the screen, so draw inside, on top. */
+.active-window-border.inset {
+    border-radius: 0;
+}
