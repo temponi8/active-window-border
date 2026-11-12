@@ -1,7 +1,8 @@
 {
-  "uuid": "active-window-border@local",
+  "uuid": "active-window-border@temponi8.github.io",
   "name": "Active Window Border",
   "description": "Outlines the focused window in the system accent colour, including maximized and fullscreen windows.",
   "shell-version": ["50"],
+  "url": "https://github.com/temponi8/active-window-border",
   "version": 1
 }

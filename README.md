@@ -18,13 +18,13 @@ GNOME Shell 50 (tested on Ubuntu 26.04, Wayland).
 
 ```bash
 git clone https://github.com/temponi8/active-window-border.git \
-  ~/.local/share/gnome-shell/extensions/active-window-border@local
+  ~/.local/share/gnome-shell/extensions/active-window-border@temponi8.github.io
 ```
 
 Log out and back in (Wayland only loads new extensions at login), then:
 
 ```bash
-gnome-extensions enable active-window-border@local
+gnome-extensions enable active-window-border@temponi8.github.io
 ```
 
 If you use Tiling Assistant's focus hint, turn it off to avoid a double outline:
