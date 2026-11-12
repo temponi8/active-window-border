@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.active-window-border"
+          path="/org/gnome/shell/extensions/active-window-border/">
+    <key name="animation-mode" type="s">
+      <choices>
+        <choice value="wait"/>
+        <choice value="follow"/>
+      </choices>
+      <default>'wait'</default>
+      <summary>Outline behaviour during window animations</summary>
+      <description>
+        'wait': hide the outline while a window opens, unminimizes or is
+        maximized/tiled, and show it once the animation ends.
+        'follow': move and resize the outline along with the animation.
+      </description>
+    </key>
+  </schema>
+</schemalist>

@@ -1,4 +1,5 @@
 import GLib from 'gi://GLib';
+import Graphene from 'gi://Graphene';
 import Meta from 'gi://Meta';
 import St from 'gi://St';
 
@@ -25,6 +26,14 @@ export default class ActiveWindowBorder extends Extension {
         this._previewing = false;
         this._animPollId = 0;
         this._animWaitStart = 0;
+        this._actor = null;
+
+        this._settings = this.getSettings();
+        this._animationMode = this._settings.get_string('animation-mode');
+        this._settings.connectObject('changed::animation-mode', () => {
+            this._animationMode = this._settings.get_string('animation-mode');
+            this._queueUpdate();
+        }, this);
 
         this._border = new St.Widget({
             style_class: 'active-window-border',
@@ -66,6 +75,8 @@ export default class ActiveWindowBorder extends Extension {
     disable() {
         this._injections.clear();
         this._injections = null;
+        this._settings.disconnectObject(this);
+        this._settings = null;
         global.display.disconnectObject(this);
         global.workspace_manager.disconnectObject(this);
         global.window_manager.disconnectObject(this);
@@ -120,6 +131,8 @@ export default class ActiveWindowBorder extends Extension {
     _untrack() {
         this._window?.disconnectObject(this);
         this._window = null;
+        this._actor?.disconnectObject(this);
+        this._actor = null;
     }
 
     _track(win) {
@@ -140,8 +153,26 @@ export default class ActiveWindowBorder extends Extension {
                     this._queueUpdate();
                 },
                 this);
+
+            // Animations change these on every frame; used by 'follow' mode.
+            this._actor = win.get_compositor_private();
+            this._actor?.connectObject(
+                'notify::scale-x', () => this._onActorAnimated(),
+                'notify::scale-y', () => this._onActorAnimated(),
+                'notify::translation-x', () => this._onActorAnimated(),
+                'notify::translation-y', () => this._onActorAnimated(),
+                'notify::opacity', () => this._onActorAnimated(),
+                'destroy', () => {
+                    this._actor = null;
+                },
+                this);
         }
         this._queueUpdate();
+    }
+
+    _onActorAnimated() {
+        if (this._animationMode === 'follow')
+            this._queueUpdate();
     }
 
     _queueUpdate() {
@@ -164,6 +195,31 @@ export default class ActiveWindowBorder extends Extension {
             !!wm._unminimizing?.has(actor) ||
             !!wm._resizing?.has(actor) ||
             !!wm._resizePending?.has(actor);
+    }
+
+    _animatedFrame(actor, frame) {
+        // Before a size change starts, the actor is frozen showing its old
+        // size: draw around the old frame.
+        const info = actor.__animationInfo;
+        if (info && Main.wm._resizePending?.has(actor)) {
+            const r = info.oldRect;
+            return {x: r.x, y: r.y, width: r.width, height: r.height};
+        }
+
+        // Map the frame's corners (in the actor's own coordinates) through
+        // the actor's current scale/translation into window_group space.
+        const map = (x, y) => actor.apply_relative_transform_to_point(
+            global.window_group,
+            new Graphene.Point3D({x: x - actor.x, y: y - actor.y, z: 0}));
+        const a = map(frame.x, frame.y);
+        const b = map(frame.x + frame.width, frame.y + frame.height);
+
+        return {
+            x: Math.round(Math.min(a.x, b.x)),
+            y: Math.round(Math.min(a.y, b.y)),
+            width: Math.round(Math.abs(b.x - a.x)),
+            height: Math.round(Math.abs(b.y - a.y)),
+        };
     }
 
     _animationWaitExpired() {
@@ -194,14 +250,28 @@ export default class ActiveWindowBorder extends Extension {
             return;
         }
 
-        if (this._isAnimating(actor) && !this._animationWaitExpired()) {
+        const animating = this._isAnimating(actor);
+        const follow = animating && this._animationMode === 'follow';
+
+        if (animating && !follow && !this._animationWaitExpired()) {
             this._border.hide();
             this._pollAnimation();
             return;
         }
         this._animWaitStart = 0;
 
-        const rect = win.get_frame_rect();
+        // Keep re-checking while following, so the outline settles on the
+        // final frame even if the last animation step sends no notification.
+        if (follow)
+            this._pollAnimation();
+
+        const frame = win.get_frame_rect();
+        // Where the window is drawn right now: its final frame, or (while
+        // following an animation) that frame mapped through the animation.
+        const rect = follow
+            ? this._animatedFrame(actor, frame)
+            : {x: frame.x, y: frame.y, width: frame.width, height: frame.height};
+        this._border.opacity = follow ? actor.opacity : 255;
 
         // Square corners: fullscreen, (half-)maximized, or tiled by
         // Tiling Assistant (which sets `isTiled` on the window).
@@ -210,13 +280,13 @@ export default class ActiveWindowBorder extends Extension {
             win.isTiled === true;
 
         // Would an outline drawn outside the window cross its monitor's edge
-        // (and show up on a neighbouring monitor)?
+        // (and show up on a neighbouring monitor)? Decided on the final frame.
         const mon = global.display.get_monitor_geometry(win.get_monitor());
         const nearEdge =
-            rect.x - BORDER < mon.x ||
-            rect.y - BORDER < mon.y ||
-            rect.x + rect.width + BORDER > mon.x + mon.width ||
-            rect.y + rect.height + BORDER > mon.y + mon.height;
+            frame.x - BORDER < mon.x ||
+            frame.y - BORDER < mon.y ||
+            frame.x + frame.width + BORDER > mon.x + mon.width ||
+            frame.y + frame.height + BORDER > mon.y + mon.height;
 
         this._border.remove_style_class_name('inset-square');
         this._border.remove_style_class_name('inset-round');
