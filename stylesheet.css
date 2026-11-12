@@ -1,10 +1,18 @@
-/* Normal windows: outline drawn just outside the window, behind it. */
+/* Free-floating windows: outline drawn just outside the window, behind it.
+ * Outer radius = window corner radius (15px) + border width (3px). */
 .active-window-border {
     border: 3px solid -st-accent-color;
-    border-radius: 18px; /* window radius (15px) + border width (3px) */
+    border-radius: 18px;
 }
 
-/* Maximized / fullscreen: edges touch the screen, so draw inside, on top. */
-.active-window-border.inset {
+/* Free window touching a monitor edge: drawn inside, on top, so it doesn't
+ * spill onto a neighbouring monitor. Radius matches the window corners. */
+.active-window-border.inset-round {
+    border-radius: 15px;
+}
+
+/* Tiled, maximized or fullscreen: square window corners, so a square box
+ * drawn inside, on top. */
+.active-window-border.inset-square {
     border-radius: 0;
 }

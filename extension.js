@@ -96,16 +96,31 @@ export default class ActiveWindowBorder extends Extension {
         }
 
         const rect = win.get_frame_rect();
-        const inset = win.is_fullscreen() ||
-            (win.maximizedHorizontally && win.maximizedVertically);
 
-        if (inset) {
-            this._border.add_style_class_name('inset');
+        // Square corners: fullscreen, (half-)maximized, or tiled by
+        // Tiling Assistant (which sets `isTiled` on the window).
+        const square = win.is_fullscreen() ||
+            win.maximizedHorizontally || win.maximizedVertically ||
+            win.isTiled === true;
+
+        // Would an outline drawn outside the window cross its monitor's edge
+        // (and show up on a neighbouring monitor)?
+        const mon = global.display.get_monitor_geometry(win.get_monitor());
+        const nearEdge =
+            rect.x - BORDER < mon.x ||
+            rect.y - BORDER < mon.y ||
+            rect.x + rect.width + BORDER > mon.x + mon.width ||
+            rect.y + rect.height + BORDER > mon.y + mon.height;
+
+        this._border.remove_style_class_name('inset-square');
+        this._border.remove_style_class_name('inset-round');
+
+        if (square || nearEdge) {
+            this._border.add_style_class_name(square ? 'inset-square' : 'inset-round');
             this._border.set_position(rect.x, rect.y);
             this._border.set_size(rect.width, rect.height);
             global.window_group.set_child_above_sibling(this._border, actor);
         } else {
-            this._border.remove_style_class_name('inset');
             this._border.set_position(rect.x - BORDER, rect.y - BORDER);
             this._border.set_size(rect.width + 2 * BORDER, rect.height + 2 * BORDER);
             global.window_group.set_child_below_sibling(this._border, actor);
