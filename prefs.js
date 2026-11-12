@@ -4,8 +4,8 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 const MODES = [
-    ['wait', 'Wait until it finishes'],
     ['follow', 'Follow the animation'],
+    ['wait', 'Wait until it finishes'],
 ];
 
 export default class ActiveWindowBorderPrefs extends ExtensionPreferences {

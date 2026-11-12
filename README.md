@@ -10,7 +10,7 @@ Unlike the focus hints in Tiling Assistant or Tiling Shell, it also works on **t
 - **Tiled (half/quarter screen), maximized or fullscreen windows:** these have square corners, so the outline is a square box drawn just inside the window's edges. It never leaves the window's own area, so it won't show up on a neighbouring monitor.
 - **Free windows touching a monitor edge:** drawn just inside the window with rounded corners, so the outline doesn't spill onto the next monitor.
 - **Alt+Tab / Super+Tab:** while the switcher is open, the outline moves to the selected window and is drawn above all other windows, so you can see where it is even if it's covered.
-- **Animations:** when a window opens, is unminimized, or is maximized/tiled (e.g. Super+arrows), the outline either waits for the animation to finish before appearing (default) or follows the animation. Choose in the extension's preferences.
+- **Animations:** when a window opens, is unminimized, or is maximized/tiled (e.g. Super+arrows), the outline follows the animation (default), or optionally waits for it to finish before appearing. Choose in the extension's preferences.
 - **Colour:** follows the accent colour in *Settings → Appearance* automatically (via `-st-accent-color`).
 
 ## Requirements
@@ -46,7 +46,7 @@ gsettings set org.gnome.shell.extensions.tiling-assistant focus-hint 0
 
 Open with `gnome-extensions prefs active-window-border@temponi8.github.io` (or from the Extensions app):
 
-- **During window animations:** *Wait until it finishes* (default) or *Follow the animation*.
+- **During window animations:** *Follow the animation* (default) or *Wait until it finishes*.
 
 ## Customize
 

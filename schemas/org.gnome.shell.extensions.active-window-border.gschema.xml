@@ -7,7 +7,7 @@
         <choice value="wait"/>
         <choice value="follow"/>
       </choices>
-      <default>'wait'</default>
+      <default>'follow'</default>
       <summary>Outline behaviour during window animations</summary>
       <description>
         'wait': hide the outline while a window opens, unminimizes or is
