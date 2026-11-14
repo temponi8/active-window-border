@@ -13,7 +13,6 @@ Unlike the focus hints in Tiling Assistant or Tiling Shell, it also works on **t
 - **Alt+Tab / Super+Tab:** while the switcher is open, the outline moves to the selected window and is drawn above all other windows, so you can see where it is even if it's covered.
 - **Animations:** when a window opens, is unminimized, or is maximized/tiled (e.g. Super+arrows), the outline follows the animation (default), or optionally waits for it to finish before appearing. Choose in the extension's preferences.
 - **Colour:** follows the accent colour in *Settings → Appearance* automatically (via `-st-accent-color`).
-  **After changing the accent colour, log out and back in.** Otherwise the outline can stop showing on some windows until the next login. The extension shows a notification as a reminder.
 
 ## Requirements
 
